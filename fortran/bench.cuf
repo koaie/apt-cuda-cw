@@ -1,0 +1,220 @@
+! -*- mode: F90; -*-
+!
+! Copyright (C) 2024, Rupert Nash, The University of Edinburgh.
+!
+! All rights reserved.
+!
+! This file is provided to you to complete an assessment and for
+! subsequent private study. It may not be shared and, in particular,
+! may not be posted on the internet. Sharing this or any modified
+! version may constitute academic misconduct under the University's
+! regulations.
+
+program bench
+  use iso_fortran_env, only: real64
+  use io
+  use hist_cpu
+  use hist_gpu
+  implicit none
+  type :: run_stats
+     real(kind=real64) :: min, max, mean, std
+     integer :: N
+  end type run_stats
+
+  ! aux
+  integer :: err, i, diff
+  real(kind=real64) :: t0, t1
+
+  ! Parse commandline helpers
+  integer :: argc, iarg, arglen
+  integer, parameter :: maxarglen = 100
+  character(maxarglen) :: arg
+
+  ! Command line arguments
+  character(maxarglen) :: edges_fn, data_fn, hist_fn
+  integer :: nruns
+
+  ! Actual data
+  real(kind=real64), dimension(:), allocatable :: edges, data
+  integer :: nbins, nedges, ndata
+  integer, dimension(:), allocatable :: cpu_counts
+  real(kind=real64), dimension(:), allocatable :: cpu_runtime_s, gpu_runtime_s
+  type(run_stats) :: cpu_stats, gpu_stats
+
+  ! GPU declarations
+  integer, dimension(:), allocatable :: gpu_counts
+  integer, device, dimension(:), allocatable :: dev_gpu_counts
+  real(kind=real64), device, dimension(:), allocatable :: dev_edges, dev_data
+
+  ! Parse command line args (use C convention for argc)
+  nruns = 10
+  argc = command_argument_count() + 1
+  if (argc < 4) then
+     print *, "Too few arguments"
+     call usage_and_die()
+  endif
+
+  iarg = 1
+  call get_command_argument(iarg, arg, arglen)
+  if (arglen == 2 .and. arg(1:2) == "-n") then
+     call get_command_argument(iarg + 1, arg, arglen)
+     read (arg, *, iostat=err) nruns
+     if (err .ne. 0) then
+        print *, "Problem with argument to option '-n'"
+        call usage_and_die()
+     end if
+     iarg = iarg + 2
+  end if
+
+  if (iarg < argc) then
+     call get_command_argument(iarg, arg, arglen)
+     edges_fn = arg
+     iarg = iarg + 1
+  else
+     print *, "No bins filename supplied"
+     call usage_and_die()
+  end if
+
+  if (iarg < argc) then
+     call get_command_argument(iarg, arg, arglen)
+     data_fn = arg
+     iarg = iarg + 1
+  else
+     print *, "No data filename supplied"
+     call usage_and_die()
+  end if
+
+  if (iarg < argc) then
+     call get_command_argument(iarg, arg, arglen)
+     hist_fn = arg
+     iarg = iarg + 1
+  else
+     print *, "No hist filename supplied"
+     call usage_and_die()
+  end if
+
+  if (iarg .ne. argc) then
+     print *, "Too many arguments supplied"
+     call usage_and_die()
+  endif
+
+  err = read_column_data(edges_fn, edges)
+  if (err .ne. 0) then
+     write (*, "('Error reading data from 'A)") trim(edges_fn)
+     error stop 1
+  end if
+
+  nedges = size(edges)
+  write (*, "('Read 'i' bin edges from 'A)") nedges, trim(edges_fn)
+  nbins = nedges - 1;
+
+  err = read_column_data(data_fn, data)
+  if (err .ne. 0) then
+     write (*, "('Error reading data from 'A)") trim(data_fn)
+     error stop 1
+  end if
+
+  ndata = size(data)
+  write (*, "('Read 'i' data points from 'A)") ndata, trim(data_fn)
+
+  ! We'll do the runs and print stats at the end.
+  allocate(cpu_runtime_s(nruns))
+  allocate(cpu_counts(nbins))
+
+  write (*, "('Beginning 'i' CPU runs')") nruns
+
+  do i = 1, nruns
+     call compute_histogram_cpu(edges, data, cpu_runtime_s(i), cpu_counts)
+     print *, "Run", i, cpu_runtime_s(i), "s"
+  end do
+
+  allocate(gpu_runtime_s(nruns))
+
+  ! Allocate GPU memory and copy inputs
+  allocate(gpu_counts(nbins))
+  allocate(dev_gpu_counts(nbins))
+  allocate(dev_edges(nedges))
+  dev_edges = edges
+
+  allocate(dev_data(ndata))
+  dev_data = data
+
+  write (*, "('Beginning 'i' GPU runs')") nruns
+
+  do i = 1, nruns
+     call cpu_time(t0)
+     call compute_histogram_gpu(dev_edges, dev_data, dev_gpu_counts)
+     call cpu_time(t1)
+     gpu_runtime_s(i) = t1 - t0
+     print *, "Run", i, gpu_runtime_s(i), "s"
+  end do
+
+  ! Copy back outputs
+  gpu_counts = dev_gpu_counts
+
+  ! Check results match CPU
+  diff = 0
+  do i = 1, nbins
+     diff = diff + abs(cpu_counts(i) - gpu_counts(i))
+  end do
+
+  if (diff > 0) then
+     print *, "L1 norm of difference in counts too large =", diff
+     error stop 1
+  endif
+  print *, "CPU and GPU histograms match"
+
+  ! Write histogram
+  print *, "Writing histogram to ", trim(hist_fn)
+  if (write_hist(hist_fn, edges, cpu_counts) .ne. 0) then
+     print *, "Error writing output"
+     error stop 1
+  end if
+
+  ! Compute stats
+  call calc_stats(cpu_runtime_s, cpu_stats)
+  call print_stats("CPU", cpu_stats)
+
+  call calc_stats(gpu_runtime_s, gpu_stats)
+  call print_stats("GPU", gpu_stats)
+  
+contains
+  subroutine usage_and_die()
+    print *, "Compute a histogram, measuring performance."
+    print *, "Usage:"
+    print *, "    bench [-n NRUNS] bins_file data_file hist_file"
+    print *, ""
+    print *, "optional arg -n sets number of runs for stats"
+    print *, "bins_file contains the bin edges"
+    print *, "data_file contains the data to be histogrammed"
+    print *, ""
+    print *, "Output data to `hist_file`"
+    print *, "Timing data to standard output"
+    error stop 1
+  end subroutine usage_and_die
+
+  ! Compute stats
+  subroutine calc_stats(data, ans)
+    real(kind=real64), dimension(:), intent(in) :: data
+    type(run_stats), intent(out) :: ans
+    real(kind=real64) :: tsum, tsumsq
+    integer :: i, N
+
+    N = size(data)
+
+    ans % min = minval(data)
+    ans % max = maxval(data)
+
+    tsum = sum(data)
+    tsumsq = sum(data**2)
+    ans % mean = tsum / N
+    ans % std = sqrt((tsumsq - tsum*tsum / N) / (N - 1))
+  end subroutine calc_stats
+
+  subroutine print_stats(where, ans)
+    type(run_stats), intent(in) :: ans
+    character(len=*), intent(in) :: where
+    print *, "Summary for ", where, " (all in s):"
+    write (*, "('min = 'e', max = 'e', mean = 'e', std = 'e)") ans % min, ans % max, ans % mean, ans % std
+  end subroutine print_stats
+end program bench

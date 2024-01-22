@@ -1,0 +1,107 @@
+! -*- mode: F90; -*-
+! Copyright (C) 2024, Rupert Nash, The University of Edinburgh.
+!
+! All rights reserved.
+!
+! This file is provided to you to complete an assessment and for
+! subsequent private study. It may not be shared and, in particular,
+! may not be posted on the internet. Sharing this or any modified
+! version may constitute academic misconduct under the University's
+! regulations.
+
+! YOU MAY MODIFY THIS FILE FREELY (WITHIN THE CONSTRAINTS DESCRIBED IN
+! THE README).
+
+module hist_gpu
+  use iso_fortran_env, only: real64
+  use cudafor
+  implicit none
+
+contains
+  subroutine cuda_check(err)
+    integer, intent(in) :: err
+    if (err .ne. cudaSuccess) then
+       print *, "CUDA error: ", cudaGetErrorString(err)
+       error stop 1
+    end if
+  end subroutine cuda_check
+
+  ! Compute the counts of data in the bins.
+  !
+  ! ASSUMES THAT DATA ARRAYS ARE ON GPU
+  !
+  ! If nbins is the number of bins, then:
+  !
+  ! bin_edges - the bin edges. It must have size nbins+1, be sorted,
+  ! and have no zero-size bins, i.e.:
+  !
+  !   bin_edges(i) < bin_edges(i+1)
+  !
+  ! data - the data to be histogrammed
+  !
+  ! counts - output parameter. Must have size nbins. Element i holds
+  ! the count of elements in data >= bin_edges(i) and < bin_edges(i+1)
+  !
+  subroutine compute_histogram_gpu(bin_edges, data, counts)
+    real(kind=real64), device, dimension(:), intent(in) :: bin_edges
+    real(kind=real64), device, dimension(:), intent(in) :: data
+    integer, device, dimension(:), intent(out) :: counts
+
+    integer :: ierr
+
+    call hist_kernel_serial<<<1,1>>>(bin_edges, data, counts)
+    ierr = cudaDeviceSynchronize()
+    call cuda_check(ierr)
+  end subroutine compute_histogram_gpu
+
+  ! Return index of first element in range greater than value, or len if
+  ! not found.
+  attributes(device) integer pure function upper_bound(data, val)
+    real(kind=real64), dimension(:), intent(in) :: data
+    real(kind=real64), intent(in) :: val
+
+    integer :: begin
+    integer :: len
+    integer :: half
+    integer :: mid
+
+    begin = 1
+    len = size(data)
+    do while (len > 0)
+       half = len / 2
+       mid = begin + half
+       if ( val < data(mid) ) then
+          len = half
+       else
+          begin = mid + 1
+          len = len - half - 1;
+       end if
+    end do
+
+    upper_bound = begin
+  end function upper_bound
+  attributes(global) subroutine hist_kernel_serial(edges, data, ans)
+    real(kind=real64), dimension(:), intent(in) :: edges
+    real(kind=real64), dimension(:), intent(in) :: data
+    integer, dimension(:), intent(out) :: ans
+
+    integer :: i, ub, nedges
+
+    nedges = size(edges)
+    ! Zero result array
+    ans = 0
+    ! Main calculation
+    do i = 1, size(data)
+       ub = upper_bound(edges, data(i))
+       if (ub == 1 ) then
+          ! value below all bins
+       else if (ub == nedges + 1) then
+          ! value above all bins
+       else
+          ! in a bin!
+          ans(ub - 1) = ans(ub - 1) + 1
+       end if
+    end do
+  end subroutine hist_kernel_serial
+
+end module hist_gpu

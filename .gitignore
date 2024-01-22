@@ -1,0 +1,7 @@
+*.o
+*.mod
+slurm-*.out
+sample_data/*.dat
+*.hist
+bench
+test
