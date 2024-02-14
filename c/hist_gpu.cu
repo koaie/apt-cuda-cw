@@ -129,6 +129,12 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
 
   int nthreads = 100;
   int nblocks = NUM_BLOCKS(ndata,nthreads);
+
+  if (ndata % nblocks != 0)
+  {
+    printf("Error: nthreads must exactly divide ndata\n");
+    exit(1);
+  }
   
   int size = nthreads * nblocks; // total threads
   int local_ndata = ndata / size; // Iterations per thread
