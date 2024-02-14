@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define NUM_BLOCKS(ARRAY_SIZE, THREADS_PER_BLOCK) ((ARRAY_SIZE)-1) / THREADS_PER_BLOCK + 1
 /*
  * Return index of first element in range greater than value, or len
  * if not found.
@@ -126,8 +127,8 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
    */
   // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
 
-  int nblocks = 100;
   int nthreads = 1000;
+  int nblocks = NUM_BLOCKS(ndata,nthreads);
 
   printf("ndata %d\n", ndata);
   hist_zero_array<<<1, 1>>>(nbins, counts);
