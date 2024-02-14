@@ -126,9 +126,12 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
    */
   // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
 
+  int nblocks = 100;
+  int nthreads = 1000;
+
   printf("ndata %d\n", ndata);
   hist_zero_array<<<1, 1>>>(nbins, counts);
-  hist_kernel_parallel<<<100, 1000>>>(nbins, bin_edges, ndata, data, counts);
+  hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
   CUDA_CHECK(cudaDeviceSynchronize());
 }
