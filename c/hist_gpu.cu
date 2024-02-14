@@ -127,10 +127,14 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
    */
   // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
 
-  int nthreads = 1000;
+  int nthreads = 100;
   int nblocks = NUM_BLOCKS(ndata,nthreads);
+  
+  int size = nthreads * nblocks; // total threads
+  int local_ndata = ndata / size; // Iterations per thread
+  // int diff = ndata - local_ndata * size;
 
-  printf("ndata %d\n", ndata);
+  printf("ndata %d, nblocks %d, local_ndata %d, diff %d\n", ndata, nblocks, local_ndata, diff);
   hist_zero_array<<<1, 1>>>(nbins, counts);
   hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
