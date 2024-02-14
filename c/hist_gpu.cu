@@ -19,18 +19,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* 
+/*
  * Return index of first element in range greater than value, or len
  * if not found.
  */
-__device__ int upper_bound(int len, double const* data, double value) {
+__device__ int upper_bound(int len, double const *data, double value)
+{
   int begin = 0;
-  while (len > 0) {
+  while (len > 0)
+  {
     int half = len / 2;
     int mid = begin + half;
-    if (value < data[mid]) {
+    if (value < data[mid])
+    {
       len = half;
-    } else {
+    }
+    else
+    {
       begin = mid + 1;
       len -= half + 1;
     }
@@ -38,47 +43,57 @@ __device__ int upper_bound(int len, double const* data, double value) {
   return begin;
 }
 
-__global__ void hist_kernel_serial(int const nbins, double const* bin_edges, int const ndata, double const* data, int* ans) {
+__global__ void hist_kernel_serial(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans)
+{
   /* Zero result array */
-  for (int i = 0; i < nbins; ++i) {
+  for (int i = 0; i < nbins; ++i)
+  {
     ans[i] = 0;
   }
 
-  for (int i = 0; i < ndata; ++i) {
+  for (int i = 0; i < ndata; ++i)
+  {
     int ub = upper_bound(nbins + 1, bin_edges, data[i]);
-    if (ub == 0) {
+    if (ub == 0)
+    {
       /* value below all bins */
-    } else if (ub == nbins + 1) {
+    }
+    else if (ub == nbins + 1)
+    {
       /* value above all bins */
-    } else {
+    }
+    else
+    {
       /* in a bin! */
       ans[ub - 1] += 1;
     }
   }
 }
 
-__global__ void hist_kernel_parallel(int const nbins, double const* bin_edges, int const ndata, double const* data, int* ans) {
-  /* Zero result array */
-  for (int i = 0; i < nbins; ++i) {
-    ans[i] = 0;
+__global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans)
+{
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  int ub = upper_bound(nbins + 1, bin_edges, data[i]);
+  if (ub == 0)
+  {
+    /* value below all bins */
   }
-
-  for (int i = 0; i < ndata; ++i) {
-    int ub = upper_bound(nbins + 1, bin_edges, data[i]);
-    if (ub == 0) {
-      /* value below all bins */
-    } else if (ub == nbins + 1) {
-      /* value above all bins */
-    } else {
-      /* in a bin! */
-      ans[ub - 1] += 1;
-    }
+  else if (ub == nbins + 1)
+  {
+    /* value above all bins */
+  }
+  else
+  {
+    /* in a bin! */
+    atomicAdd(&ans[ub - 1], 1);
   }
 }
 
-__global__ void hist_zero_array(int const nbins, int* ans) {
+__global__ void hist_zero_array(int const nbins, int *ans)
+{
   /* Zero result array */
-  for (int i = 0; i < nbins; ++i) {
+  for (int i = 0; i < nbins; ++i)
+  {
     ans[i] = 0;
   }
 }
@@ -103,15 +118,17 @@ __global__ void hist_zero_array(int const nbins, int* ans) {
  * must be allocated by caller. Element i holds the count of elements
  * in data >= bin_edges[i] and < bin_edges[i+1]
  */
-void compute_histogram_gpu(int const nbins, double const* bin_edges, int const ndata, double const* data, int* counts) {
+void compute_histogram_gpu(int const nbins, double const *bin_edges, int const ndata, double const *data, int *counts)
+{
   /* Skip checks as the data lives in GPU memory - for this exercise
    * we will be using the same inputs as for the CPU version which has
    * checked already.
    */
-  hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
+  // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
 
-   hist_zero_array<<<1,1>>>(nbins,counts);
-  // hist_kernel_parallel<<<100,1000>>>(nbins, bin_edges, ndata, data, counts);
+  printf("ndata %d\n", ndata);
+  hist_zero_array<<<1, 1>>>(nbins, counts);
+  hist_kernel_parallel<<<100, 1000>>>(nbins, bin_edges, ndata, data, counts);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
   CUDA_CHECK(cudaDeviceSynchronize());
 }
