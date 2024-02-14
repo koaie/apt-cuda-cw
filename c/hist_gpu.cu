@@ -57,6 +57,32 @@ __global__ void hist_kernel_serial(int const nbins, double const* bin_edges, int
   }
 }
 
+__global__ void hist_kernel_parallel(int const nbins, double const* bin_edges, int const ndata, double const* data, int* ans) {
+  /* Zero result array */
+  for (int i = 0; i < nbins; ++i) {
+    ans[i] = 0;
+  }
+
+  for (int i = 0; i < ndata; ++i) {
+    int ub = upper_bound(nbins + 1, bin_edges, data[i]);
+    if (ub == 0) {
+      /* value below all bins */
+    } else if (ub == nbins + 1) {
+      /* value above all bins */
+    } else {
+      /* in a bin! */
+      ans[ub - 1] += 1;
+    }
+  }
+}
+
+__global__ void hist_zero_array(int const nbins, int* ans) {
+  /* Zero result array */
+  for (int i = 0; i < nbins; ++i) {
+    ans[i] = 0;
+  }
+}
+
 /*
  * Compute the counts of data in the bins.
  *
@@ -83,6 +109,9 @@ void compute_histogram_gpu(int const nbins, double const* bin_edges, int const n
    * checked already.
    */
   hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
+
+   hist_zero_array<<<1,1>>>(nbins,counts);
+  // hist_kernel_parallel<<<100,1000>>>(nbins, bin_edges, ndata, data, counts);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
   CUDA_CHECK(cudaDeviceSynchronize());
 }
