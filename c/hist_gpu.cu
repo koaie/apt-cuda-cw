@@ -19,9 +19,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_THREADS 256
+#define NUM_THREADS 32
+// #define MAX_BLOCKS 2560 // 32 max blocks per SM * 80 SMs
+#define MAX_BLOCKS 1000 // 32 max blocks per SM * 80 SMs
+
 #define NUM_BLOCKS(ARRAY_SIZE, THREADS_PER_BLOCK) ((ARRAY_SIZE)-1) / THREADS_PER_BLOCK + 1
-#define MAX_BLOCKS 2560 // 32 max blocks per SM * 80 SMs
+
 /*
  * Return index of first element in range greater than value, or len
  * if not found.
@@ -73,7 +76,7 @@ __global__ void hist_kernel_serial(int const nbins, double const *bin_edges, int
   }
 }
 
-__global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans, int const niters)
+__global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans)
 {
   extern __shared__ int local_ans[];
 
@@ -86,9 +89,8 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
   }
   __syncthreads();
 
-  int max = i + niters - 1;
   
-  for(int j = i; max < ndata && j <= max; j++)
+  for(int j = i; j < ndata; j += blockDim.x * gridDim.x)
   {
     int ub = upper_bound(nbins + 1, bin_edges, data[j]);
     if (ub == 0)
@@ -150,18 +152,18 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
   size_t bin_size = nbins * sizeof(int);
 
   int nblocks = NUM_BLOCKS(ndata, NUM_THREADS);
-  int const niters = (nblocks - 1) / MAX_BLOCKS + 1;
-  if (niters > 1 )
+
+  if(nblocks > MAX_BLOCKS)
   {
     nblocks = MAX_BLOCKS;
   }
 
 
-  printf("nbins %d, ndata %d, nthreads %d, nblocks %d, niters %d\n", nbins, ndata, NUM_THREADS, nblocks, niters);
+  printf("nbins %d, ndata %d, nthreads %d, nblocks %d, niters %d\n", nbins, ndata, NUM_THREADS, nblocks);
 
   hist_zero_array<<<1, 1>>>(nbins, counts);
-  hist_kernel_parallel<<<nblocks, NUM_THREADS, bin_size>>>(nbins, bin_edges, ndata, data, counts,niters);
-  // hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts,niters);
+  hist_kernel_parallel<<<nblocks, NUM_THREADS, bin_size>>>(nbins, bin_edges, ndata, data, counts);
+  // hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
   CUDA_CHECK(cudaDeviceSynchronize());
 }
