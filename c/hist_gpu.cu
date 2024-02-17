@@ -20,8 +20,7 @@
 #include <stdlib.h>
 
 #define NUM_THREADS 256
-// #define MAX_BLOCKS 2560 // 32 max blocks per SM * 80 SMs
-#define MAX_BLOCKS 1280 // 32 max blocks per SM * 80 SMs
+#define MAX_BLOCKS 2560 // 32 max blocks per SM * 80 SMs
 
 #define NUM_BLOCKS(ARRAY_SIZE, THREADS_PER_BLOCK) ((ARRAY_SIZE)-1) / THREADS_PER_BLOCK + 1
 
