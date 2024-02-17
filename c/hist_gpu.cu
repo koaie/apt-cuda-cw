@@ -79,9 +79,12 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
 {
   extern __shared__ int local_ans[];
 
+  // Our thread index in the grid
+  // i = block id * block size + thread id
   int i = blockIdx.x * blockDim.x + threadIdx.x;
+
   /* Zero result array */
-  // Increase by one as long as nthread+num_blocks is smaller than nbins (allowing us to deal with nbins bigger than nblocks or nthreads)
+  // Increase by one as long as nthread+num_blocks is smaller than nbins (allowing us to deal with bins bigger than nblocks or nthreads)
   for (int j = threadIdx.x; j < nbins; j += blockDim.x)
   {
     local_ans[j] = 0;
@@ -89,48 +92,33 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
   __syncthreads();
 
   /*
-  i = block id * block size + thread id
-  increment by block size * number of blocks
+  Skip to the next data index by the size of the x dimension 
+
+  index, i = block id * block size + thread id
+  grid size = block size * number of blocks
+  +1 = to increment our index
   
   steps:
-  | i | i + blocks * threads + 1 | ... until i < ndata
-
-  We are skipping to the next data[] index by the x diamanstion 
+  | i | i + block size * nblocks + 1 | ... until i < ndata
   */
 
   for(int j = i; j < ndata; j += blockDim.x * gridDim.x)
   {
     int ub = upper_bound(nbins + 1, bin_edges, data[j]);
-    if (ub == 0)
+    // avoid thread divergency
+    if (ub > 0 && ub < nbins + 1)
     {
-      /* value below all bins */
-    }
-    else if (ub == nbins + 1)
-    {
-      /* value above all bins */
-    }
-    else
-    {
-      /* in a bin! */
+      /* in a shared bin! */
       atomicAdd(&local_ans[ub - 1], 1);
     }
   }
   __syncthreads();
 
 
-  // Copy from shared (onchip) to global
+  // Copy from shared (onchip) to global, i.e. reduction
   for (int j = threadIdx.x; j < nbins; j += blockDim.x)
   {
     atomicAdd(&ans[j], local_ans[j]);
-  }
-}
-
-__global__ void hist_zero_array(int const nbins, int *ans)
-{
-  /* Zero result array */
-  for (int i = 0; i < nbins; i++)
-  {
-    ans[i] = 0;
   }
 }
 
@@ -160,24 +148,29 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
    * we will be using the same inputs as for the CPU version which has
    * checked already.
    */
-  // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
 
-  size_t bin_size = nbins * sizeof(int);
+  size_t bin_size = nbins * sizeof(int); // Size of bins shared array
 
-  int nblocks = NUM_BLOCKS(ndata, NUM_THREADS);
+  int nblocks = NUM_BLOCKS(ndata, NUM_THREADS); // Dynmically allocate number of blocks
 
+  // if nblocks is higher than the maxmimum possible block count, then use the maximum.
   if(nblocks > MAX_BLOCKS)
   {
     nblocks = MAX_BLOCKS;
   }
 
+  // Useful debugging information
+  // printf("nbins %d, ndata %d, nthreads %d, nblocks %d\n", nbins, ndata, NUM_THREADS, nblocks);
 
-  printf("nbins %d, ndata %d, nthreads %d, nblocks %d\n", nbins, ndata, NUM_THREADS, nblocks);
-
-  // hist_zero_array<<<1, 1>>>(nbins, counts);
+  // Zero array
   cudaMemset(counts,0,sizeof(int) * nbins);
+
+  // Launch kerne with nblocks, nthreads, and allocate bin_size for the shard array
   hist_kernel_parallel<<<nblocks, NUM_THREADS, bin_size>>>(nbins, bin_edges, ndata, data, counts);
-  // hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts);
+
+  // Serial, kept for benchmarking and speedup gathering
+  // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
+
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
   CUDA_CHECK(cudaDeviceSynchronize());
 }
