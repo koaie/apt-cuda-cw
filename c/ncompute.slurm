@@ -2,7 +2,7 @@
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=00:1:00
+#SBATCH --time=00:2:00
 #SBATCH --account=m23oc-s2617564
 
 NVHPC_VERSION=22.11
@@ -17,6 +17,6 @@ cmd=(
     --launch-skip 1 # skip first one as cold
     --launch-count 10 # collect only ten runs (as collecting detailed info)
     --set detailed # collect 
-    bench -n 3 $DATADIR/exp.bins $DATADIR/uni_10M.dat uni_10M.hist # application
+    bench -n 10 $DATADIR/exp.bins $DATADIR/uni_10M.dat uni_10M.hist # application
 )
 "${cmd[@]}"

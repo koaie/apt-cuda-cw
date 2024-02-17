@@ -174,7 +174,8 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
 
   printf("nbins %d, ndata %d, nthreads %d, nblocks %d\n", nbins, ndata, NUM_THREADS, nblocks);
 
-  hist_zero_array<<<1, 1>>>(nbins, counts);
+  // hist_zero_array<<<1, 1>>>(nbins, counts);
+  cudaMemset(counts,0,sizeof(int) * nbins);
   hist_kernel_parallel<<<nblocks, NUM_THREADS, bin_size>>>(nbins, bin_edges, ndata, data, counts);
   // hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
