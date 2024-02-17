@@ -89,7 +89,16 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
   }
   __syncthreads();
 
+  /*
+  i = block id * block size + thread id
+  increment by block size * number of blocks
   
+  steps:
+  | i | i + blocks * threads + 1 | ... until i < ndata
+
+  We are skipping to the next data[] index by the x diamanstion 
+  */
+
   for(int j = i; j < ndata; j += blockDim.x * gridDim.x)
   {
     int ub = upper_bound(nbins + 1, bin_edges, data[j]);
@@ -106,9 +115,14 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
       /* in a bin! */
       atomicAdd(&local_ans[ub - 1], 1);
     }
+  }
+  __syncthreads();
 
-    // __syncthreads();
-    atomicAdd(&ans[ub - 1], 1);
+
+  // Copy from shared (onchip) to global
+  for (int j = threadIdx.x; j < nbins; j += blockDim.x)
+  {
+    atomicAdd(&ans[j], local_ans[j]);
   }
 }
 
