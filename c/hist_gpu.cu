@@ -105,7 +105,7 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
   for(int j = i; j < ndata; j += blockDim.x * gridDim.x)
   {
     int ub = upper_bound(nbins + 1, bin_edges, data[j]);
-    // avoid warp divergency
+    // simplify boundries
     if (ub > 0 && ub < nbins + 1)
     {
       /* in a shared bin! */
