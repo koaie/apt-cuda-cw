@@ -4,9 +4,7 @@
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --time=00:1:00
-
-# Optionally set your budget code here
-# #SBATCH --account=[budget code]
+#SBATCH --account=m23oc-s2617564
 
 DATADIR=/work/z04/shared/apt-cuda-cw/sample_data
 

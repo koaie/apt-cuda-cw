@@ -20,6 +20,7 @@
 #include <stdlib.h>
 
 #define NUM_BLOCKS(ARRAY_SIZE, THREADS_PER_BLOCK) ((ARRAY_SIZE)-1) / THREADS_PER_BLOCK + 1
+#define MAX_BLOCKS 2560 // 32 max blocks per SM * 80 SMs
 /*
  * Return index of first element in range greater than value, or len
  * if not found.
@@ -71,22 +72,35 @@ __global__ void hist_kernel_serial(int const nbins, double const *bin_edges, int
   }
 }
 
-__global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans)
+__global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans, int const niters)
 {
+  // extern __shared__ int local_ans[];
+
+  // /* Zero result array */
+  // for (int i = 0; i < nbins; ++i)
+  // {
+  //   local_ans[i] = 0;
+  // }
+  // __syncthreads();
+
+
   int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int ub = upper_bound(nbins + 1, bin_edges, data[i]);
-  if (ub == 0)
+  if(i < ndata)
   {
-    /* value below all bins */
-  }
-  else if (ub == nbins + 1)
-  {
-    /* value above all bins */
-  }
-  else
-  {
-    /* in a bin! */
-    atomicAdd(&ans[ub - 1], 1);
+    int ub = upper_bound(nbins + 1, bin_edges, data[i]);
+    if (ub == 0)
+    {
+      /* value below all bins */
+    }
+    else if (ub == nbins + 1)
+    {
+      /* value above all bins */
+    }
+    else
+    {
+      /* in a bin! */
+      atomicAdd(&ans[ub - 1], 1);
+    }
   }
 }
 
@@ -127,22 +141,20 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
    */
   // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
 
-  int nthreads = 100;
+  int const nthreads = 256;
   int nblocks = NUM_BLOCKS(ndata,nthreads);
-
-  if (ndata % nblocks != 0)
+  int const niters = (nblocks - 1) / MAX_BLOCKS + 1;
+  if (niters > 1 )
   {
-    printf("Error: nthreads must exactly divide ndata\n");
-    exit(1);
+    nblocks = MAX_BLOCKS;
   }
-  
-  int size = nthreads * nblocks; // total threads
-  int local_ndata = ndata / size; // Iterations per thread
-  // int diff = ndata - local_ndata * size;
 
-  printf("ndata %d, nblocks %d, local_ndata %d, diff %d\n", ndata, nblocks, local_ndata, diff);
+
+  printf("ndata %d, nthreads %d, nblocks %d, niters %d\n", ndata, nthreads, nblocks, niters);
+
   hist_zero_array<<<1, 1>>>(nbins, counts);
-  hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts);
+  // hist_kernel_parallel<<<nblocks, nthreads, nbins*sizeof(int)>>>(nbins, bin_edges, ndata, data, counts,niters);
+  hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts,niters);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
   CUDA_CHECK(cudaDeviceSynchronize());
 }
