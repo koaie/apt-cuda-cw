@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define NUM_THREADS 256
 #define NUM_BLOCKS(ARRAY_SIZE, THREADS_PER_BLOCK) ((ARRAY_SIZE)-1) / THREADS_PER_BLOCK + 1
 #define MAX_BLOCKS 2560 // 32 max blocks per SM * 80 SMs
 /*
@@ -74,20 +75,22 @@ __global__ void hist_kernel_serial(int const nbins, double const *bin_edges, int
 
 __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans, int const niters)
 {
-  // extern __shared__ int local_ans[];
-
-  // /* Zero result array */
-  // for (int i = 0; i < nbins; ++i)
-  // {
-  //   local_ans[i] = 0;
-  // }
-  // __syncthreads();
-
+  extern __shared__ int local_ans[];
 
   int i = blockIdx.x * blockDim.x + threadIdx.x;
-  if(i < ndata)
+  /* Zero result array */
+  // Increase by one as long as nthread+num_blocks is smaller than nbins (allowing us to deal with nbins bigger than nblocks or nthreads)
+  for (int j = threadIdx.x; j < nbins; j += blockDim.x)
   {
-    int ub = upper_bound(nbins + 1, bin_edges, data[i]);
+    local_ans[j] = 0;
+  }
+  __syncthreads();
+
+  int max = i + niters - 1;
+  
+  for(int j = i; max < ndata && j <= max; j++)
+  {
+    int ub = upper_bound(nbins + 1, bin_edges, data[j]);
     if (ub == 0)
     {
       /* value below all bins */
@@ -99,15 +102,18 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
     else
     {
       /* in a bin! */
-      atomicAdd(&ans[ub - 1], 1);
+      atomicAdd(&local_ans[ub - 1], 1);
     }
+
+    // __syncthreads();
+    atomicAdd(&ans[ub - 1], 1);
   }
 }
 
 __global__ void hist_zero_array(int const nbins, int *ans)
 {
   /* Zero result array */
-  for (int i = 0; i < nbins; ++i)
+  for (int i = 0; i < nbins; i++)
   {
     ans[i] = 0;
   }
@@ -141,8 +147,9 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
    */
   // hist_kernel_serial<<<1,1>>>(nbins, bin_edges, ndata, data, counts);
 
-  int const nthreads = 256;
-  int nblocks = NUM_BLOCKS(ndata,nthreads);
+  size_t bin_size = nbins * sizeof(int);
+
+  int nblocks = NUM_BLOCKS(ndata, NUM_THREADS);
   int const niters = (nblocks - 1) / MAX_BLOCKS + 1;
   if (niters > 1 )
   {
@@ -150,11 +157,11 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
   }
 
 
-  printf("ndata %d, nthreads %d, nblocks %d, niters %d\n", ndata, nthreads, nblocks, niters);
+  printf("nbins %d, ndata %d, nthreads %d, nblocks %d, niters %d\n", nbins, ndata, NUM_THREADS, nblocks, niters);
 
   hist_zero_array<<<1, 1>>>(nbins, counts);
-  // hist_kernel_parallel<<<nblocks, nthreads, nbins*sizeof(int)>>>(nbins, bin_edges, ndata, data, counts,niters);
-  hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts,niters);
+  hist_kernel_parallel<<<nblocks, NUM_THREADS, bin_size>>>(nbins, bin_edges, ndata, data, counts,niters);
+  // hist_kernel_parallel<<<nblocks, nthreads>>>(nbins, bin_edges, ndata, data, counts,niters);
   /* REMEBMER TO ENSURE YOUR KERNEL ARE FINISHED! */
   CUDA_CHECK(cudaDeviceSynchronize());
 }
