@@ -19,9 +19,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_THREADS 32
+#define NUM_THREADS 256
 // #define MAX_BLOCKS 2560 // 32 max blocks per SM * 80 SMs
-#define MAX_BLOCKS 1000 // 32 max blocks per SM * 80 SMs
+#define MAX_BLOCKS 1280 // 32 max blocks per SM * 80 SMs
 
 #define NUM_BLOCKS(ARRAY_SIZE, THREADS_PER_BLOCK) ((ARRAY_SIZE)-1) / THREADS_PER_BLOCK + 1
 
@@ -173,7 +173,7 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
   }
 
 
-  printf("nbins %d, ndata %d, nthreads %d, nblocks %d, niters %d\n", nbins, ndata, NUM_THREADS, nblocks);
+  printf("nbins %d, ndata %d, nthreads %d, nblocks %d\n", nbins, ndata, NUM_THREADS, nblocks);
 
   hist_zero_array<<<1, 1>>>(nbins, counts);
   hist_kernel_parallel<<<nblocks, NUM_THREADS, bin_size>>>(nbins, bin_edges, ndata, data, counts);

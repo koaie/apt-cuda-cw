@@ -8,4 +8,4 @@
 
 DATADIR=/work/z04/shared/apt-cuda-cw/sample_data
 
-srun ./bench -n 3 $DATADIR/uniform.bins $DATADIR/uni_100k.dat uni_100k.hist
+srun ./bench -n 3 $DATADIR/exp.bins $DATADIR/uni_1M.dat uni_1M.hist
