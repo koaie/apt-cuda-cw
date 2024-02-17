@@ -77,6 +77,7 @@ __global__ void hist_kernel_serial(int const nbins, double const *bin_edges, int
 
 __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, int const ndata, double const *data, int *ans)
 {
+  // shared memory
   extern __shared__ int local_ans[];
 
   // Our thread index in the grid
@@ -101,8 +102,9 @@ __global__ void hist_kernel_parallel(int const nbins, double const *bin_edges, i
   steps:
   | i | i + block size * nblocks + 1 | ... until i < ndata
   */
+  int grid_size = blockDim.x * gridDim.x;
 
-  for(int j = i; j < ndata; j += blockDim.x * gridDim.x)
+  for(int j = i; j < ndata; j += grid_size)
   {
     int ub = upper_bound(nbins + 1, bin_edges, data[j]);
     // simplify boundries
@@ -165,7 +167,7 @@ void compute_histogram_gpu(int const nbins, double const *bin_edges, int const n
   // Zero array
   cudaMemset(counts,0,sizeof(int) * nbins);
 
-  // Launch kerne with nblocks, nthreads, and allocate bin_size for the shard array
+  // Launch kerne with nblocks, nthreads, and allocate bin_size for the shared array
   hist_kernel_parallel<<<nblocks, NUM_THREADS, bin_size>>>(nbins, bin_edges, ndata, data, counts);
 
   // Serial, kept for benchmarking and speedup gathering
